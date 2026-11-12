@@ -91,6 +91,30 @@ and report its successful start.
 
 Very likely, you want to register the server to your MCP client (e.g. OpenCode, Claude Code, Codex,...):
 
+## Command-line client (backport)
+
+**This branch (`isabelle2025-2-cli`) is a private backport** of the command-line client of PIDE AI
+(the successor of this project on its `main` branch, for Isabelle2026) onto Isabelle2025-2.
+It is to be replaced by the official PIDE AI version when moving to Isabelle2026; tool, client and option names follow upstream so that the switch changes nothing for CLI users.
+The MCP server over stdin/stdout, its tools and their contracts are unchanged.
+
+Start a server on a TCP port, either standalone or next to the stdio MCP server:
+```bash
+isabelle pide_ai -p 4711 -l HOL      # TCP only; -p 0 picks a free port (logged on startup)
+isabelle pide_mcp -p 4711            # stdio MCP, plus the same sessions on TCP port 4711
+```
+If the port is already bound, `pide_mcp -p PORT` proxies its stdio to the server running there (`-s`: only proxy).
+Then call tools with the client in `$PIDE_AI_HOME/clients` (`isabelle getenv -b PIDE_AI_HOME`):
+```bash
+pide_ai_cli 4711 list_extensions show_input_schema:=true    # tools and their arguments
+pide_ai_cli 4711 -p start_session logic=HOL                 # -p: progress on stderr
+pide_ai_cli 4711 get_state origin=Foo.thy include_details:=true
+pide_ai_cli 4711 stop_server
+```
+Arguments are `KEY=STRING`, `KEY:=JSON`, or a single JSON object. The result goes to stdout, progress and errors to stderr; the exit code is 1 on error.
+Relative paths resolve against the client's working directory.
+The server only listens on localhost.
+
 ## Connecting Coding Agents to the MCP Server
 
 You have to set up two things for your coding agent: 

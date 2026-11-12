@@ -20,3 +20,24 @@ option pide_mcp_session_statistics_limit : int = 200 for pide_mcp
 
 option pide_mcp_tools : string = "*" for pide_mcp
   -- "comma-separated names of tools to serve or \"*\" to serve all"
+
+
+section "Protocols (PIDE AI command-line client backport)"
+
+option pide_ai_protocols_include : string = "*" for pide_ai
+  -- "comma-separated names of protocols to serve on the TCP port or \"*\" to serve all"
+
+option pide_ai_protocols_exclude : string = "" for pide_ai
+  -- "comma-separated names of protocols not to serve on the TCP port or \"*\" to serve none"
+
+option pide_ai_protocol_handshake_timeout : real = 15 for pide_ai
+  -- "timeout for the protocol handshake at the start of a connection (seconds)"
+
+
+section "Clients (PIDE AI command-line client backport)"
+
+option pide_ai_client_infos_include : string = "*" for pide_ai
+  -- "comma-separated names of client infos to advertise or \"*\" to advertise all"
+
+option pide_ai_client_infos_exclude : string = "" for pide_ai
+  -- "comma-separated names of client infos not to advertise or \"*\" to advertise none"

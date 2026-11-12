@@ -1,3 +1,5 @@
 # -*- shell-script -*- :mode=shellscript:
 PIDE_MCP_HOME="$COMPONENT"
 ISABELLE_PIDE_MCP_JAR="$PIDE_MCP_HOME/lib/isabelle_pide_mcp.jar"
+# PIDE AI command-line client backport: clients live in $PIDE_AI_HOME/clients, as upstream
+PIDE_AI_HOME="$COMPONENT"

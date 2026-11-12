@@ -4,6 +4,17 @@ PIDE MCP NEWS -- history of user-relevant changes
 New in this PIDE MCP version
 ----------------------------
 
+* Private backport (branch `isabelle2025-2-cli`, not published) of PIDE AI's command-line client and TCP command protocol onto Isabelle2025-2,
+    to be replaced by the official PIDE AI version when moving to Isabelle2026:
+    * New Isabelle tool `isabelle pide_ai` to run a server on a TCP port.
+    * `pide_mcp -p PORT` also serves all enabled protocols on TCP port PORT. If PORT is bound, `pide_mcp -p PORT` connects to the server running there.
+        `pide_mcp -p PORT -s` only connects to an existing server.
+    * Protocols `cmd` (command protocol: one MCP `tools/call`-shaped request per connection, answered by progress and result lines) and `mcp` on the TCP port,
+        selected with options `pide_ai_protocols_include` and `pide_ai_protocols_exclude`; handshake timeout `pide_ai_protocol_handshake_timeout`.
+    * CLI client `$PIDE_AI_HOME/clients/pide_ai_cli PORT [-p] TOOL [JSON | KEY=STRING ... | KEY:=JSON ...]` (and `pide_ai_cli.ps1`):
+        result on stdout, progress (`-p`) and errors on stderr, exit code 1 on error.
+    * Command connections additionally offer `list_extensions` and `stop_server` (not served as MCP tools).
+    * Relative paths in tool calls over TCP resolve against the client's working directory.
 * Edits now decode automatically.
 * More compact `get_state`: by default, only a summary is returned instead of full commands.
   Empty commands are not returned but still counted. New `include_details` and `problematic_commands_limit`.

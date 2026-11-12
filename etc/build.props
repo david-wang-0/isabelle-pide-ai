@@ -3,6 +3,27 @@ module = $ISABELLE_PIDE_MCP_JAR
 requirements = env:ISABELLE_SCALA_JAR
 sources = \
   src/pide_mcp.scala \
+  src/pide_ai.scala \
+  src/Concurrent/task.scala \
+  src/Concurrent/task_scope.scala \
+  src/Connection/line_connection.scala \
+  src/Connection/line_connection_proxy.scala \
+  src/TCP/pide_ai_tcp_client_connector.scala \
+  src/TCP/pide_ai_tcp_connector.scala \
+  src/TCP/socket_connection.scala \
+  src/Stdio/pide_ai_stdio_connector.scala \
+  src/Stdio/stdio_connection.scala \
+  src/Server/pide_ai_client_connector.scala \
+  src/Server/pide_ai_client_context.scala \
+  src/Server/pide_ai_client_handler.scala \
+  src/Server/pide_ai_connector.scala \
+  src/Server/pide_ai_endpoint.scala \
+  src/Server/pide_ai_protocol.scala \
+  src/Server/pide_ai_protocol_handshake.scala \
+  src/Server/pide_ai_server.scala \
+  src/Command/pide_ai_command.scala \
+  src/Command/pide_ai_command_endpoint.scala \
+  src/Command/pide_ai_core_tools.scala \
   src/pide_mcp_command.scala \
   src/pide_mcp_name_space.scala \
   src/pide_mcp_ml_statistics.scala \
@@ -38,6 +59,7 @@ sources = \
   src/Tools/tool_unload.scala
 services = \
   isabelle.pide.mcp.PIDE_MCP_Application \
+  isabelle.pide.mcp.PIDE_AI_Application \
   isabelle.pide.mcp.Tools_Create_File \
   isabelle.pide.mcp.Tools_Create_Scratch \
   isabelle.pide.mcp.Tools_Edit \

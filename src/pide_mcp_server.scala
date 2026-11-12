@@ -1,7 +1,8 @@
 /*  Title:      PIDE_MCP/pide_mcp_server.scala
     Author:     Kevin Kappelmann
 
-JSON-RPC server loop for the Model Context Protocol.
+JSON-RPC server loop for the Model Context Protocol, serving one connection (stdin/stdout or
+TCP) of a PIDE AI server (backport of PIDE AI's connection handling onto Isabelle2025-2).
 */
 
 package isabelle.pide.mcp
@@ -9,26 +10,23 @@ package isabelle.pide.mcp
 import isabelle._
 import PIDE_MCP_Protocol._
 
-import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
-
 class PIDE_MCP_Server(
-  sessions: PIDE_MCP_Sessions,
-  log: Logger,
-  base_progress: Progress.Status,
-  log_messages: Boolean
-) {
+  server: PIDE_AI_Server,
+  connection: Line_Connection,
+  context: PIDE_AI_Client_Context,
+  log: Logger
+) extends PIDE_AI_Endpoint(server, connection, context) {
+  private def sessions: PIDE_MCP_Sessions = server.sessions
+  private def base_progress: Progress.Status = server.base_progress
 
-  private def respond(out: BufferedWriter, body: JSON.Object.T): Unit = {
-    val text = JSON.Format(body)
-    if (log_messages) log(text)
-    out.write(text)
-    out.newLine()
-    out.flush()
-  }
+  private type Output = Line_Connection
+
+  private def respond(out: Output, body: JSON.Object.T): Unit =
+    out.write_line(JSON.Format(body))
 
   private def respond_internal_error(
     id: JSON_RPC.Id | Null,
-    out: BufferedWriter,
+    out: Output,
     exn: Throwable
   ): Unit = {
     Exn.capture {
@@ -39,11 +37,10 @@ class PIDE_MCP_Server(
   }
 
   private enum Event {
-    case Startup_Failure(exn: Throwable) extends Event
     case Input(line: String) extends Event
     case Input_Closed extends Event
     case Input_Failure(exn: Throwable) extends Event
-    case Interrupt extends Event
+    case Stop extends Event
     case Tool_Progress(id: JSON_RPC.Id,
       token: Progress_Token,
       serial: Long,
@@ -67,15 +64,17 @@ class PIDE_MCP_Server(
     override protected def run(): Unit = {
       val result = Exn.capture {
         progress.expose_interrupt()
-        tool.handle(sessions, call.args, progress)
+        PIDE_MCP_Util.with_client_dir(context.cwd) { tool.handle(sessions, call.args, progress) }
       }
       events.send(Event.Tool_Result(id, result))
     }
   }
 
+  private val events = Mailbox[Event]()
+
   private class Run {
-    val events = Mailbox[Event]()
-    val out = new BufferedWriter(new OutputStreamWriter(System.out, UTF8.charset))
+    val events: Mailbox[Event] = PIDE_MCP_Server.this.events
+    val out: Output = connection
     var tool_tasks = Map.empty[JSON_RPC.Id, Tool_Task]
     def progress_token_owner(token: Progress_Token): Option[JSON_RPC.Id] =
       tool_tasks.collectFirst {
@@ -83,72 +82,57 @@ class PIDE_MCP_Server(
       }
   }
 
-  private def read_input(events: Mailbox[Event]): Unit =
-    Exn.capture { new BufferedReader(new InputStreamReader(System.in, UTF8.charset)) } match {
-      case Exn.Exn(exn) => events.send(Event.Input_Failure(exn))
-      case Exn.Res(in) =>
-        var finished = false
-        while (!finished) {
-          Exn.capture(in.readLine()) match {
-            case Exn.Res(null) =>
-              events.send(Event.Input_Closed)
-              finished = true
-            case Exn.Res(line: String) => events.send(Event.Input(line))
-            case Exn.Exn(exn) =>
-              events.send(Event.Input_Failure(exn))
-              finished = true
-          }
-        }
+  private def read_input(events: Mailbox[Event]): Unit = {
+    var finished = false
+    while (!finished) {
+      Exn.capture(connection.read_line()) match {
+        case Exn.Res(None) =>
+          events.send(Event.Input_Closed)
+          finished = true
+        case Exn.Res(Some(line)) => events.send(Event.Input(line))
+        case Exn.Exn(exn) =>
+          events.send(Event.Input_Failure(exn))
+          finished = true
+      }
     }
+  }
 
-  def run(startup: Progress => Unit): Unit = {
+  def stop(): Unit = events.send(Event.Stop)
+
+  def run(): Unit =
+    if (Exn.is_res(server.ready.join_result)) serve()
+
+  private def serve(): Unit = {
     val run_state = new Run
     Isabelle_Thread.fork(name = "pide_mcp_input", daemon = true) {
       read_input(run_state.events)
     }
 
-    val startup_task = new Progress_Task(
-      "pide_mcp_startup", new PIDE_MCP_Task_Progress(base_progress, None)) {
-      override protected def run(): Unit =
-        Exn.capture { startup(progress) } match {
-          case Exn.Exn(exn) => run_state.events.send(Event.Startup_Failure(exn))
-          case Exn.Res(_) =>
-        }
-    }
-    startup_task.start()
-
     val result =
       Exn.capture {
-        POSIX_Interrupt.handler(run_state.events.send(Event.Interrupt)) {
-          var running = true
-          while (running) {
-            for (event <- run_state.events.receive() if running) event match {
-              case Event.Startup_Failure(exn) =>
-                Exn.capture { log(s"Startup failure: ${Exn.print(exn)}") }
-                throw exn
-              case Event.Input(line) => handle_input(line, run_state)
-              case Event.Input_Closed => running = false
-              case Event.Interrupt =>
-                log("Interrupt: shutting down...")
-                running = false
-              case Event.Input_Failure(exn) =>
-                Exn.capture { log(s"Input failure: ${Exn.print(exn)}") }
-                throw exn
-              case Event.Tool_Progress(id, token, serial, message) =>
-                if (run_state.tool_tasks.contains(id))
-                  respond(run_state.out, progress_notification(token, serial, message))
-              case Event.Tool_Result(id, tool_result) =>
-                val opt_task = run_state.tool_tasks.get(id)
-                require(opt_task.isDefined,
-                  s"Active tool task expected: ${JSON.Format(id)}")
-                run_state.tool_tasks -= id
-                handle_tool_result(id, opt_task.get, tool_result, run_state.out)
-            }
+        var running = true
+        while (running) {
+          for (event <- run_state.events.receive() if running) event match {
+            case Event.Input(line) => handle_input(line, run_state)
+            case Event.Input_Closed => running = false
+            case Event.Stop => running = false
+            case Event.Input_Failure(exn) =>
+              Exn.capture { log(s"Input failure: ${Exn.print(exn)}") }
+              throw exn
+            case Event.Tool_Progress(id, token, serial, message) =>
+              if (run_state.tool_tasks.contains(id))
+                respond(run_state.out, progress_notification(token, serial, message))
+            case Event.Tool_Result(id, tool_result) =>
+              val opt_task = run_state.tool_tasks.get(id)
+              require(opt_task.isDefined,
+                s"Active tool task expected: ${JSON.Format(id)}")
+              run_state.tool_tasks -= id
+              handle_tool_result(id, opt_task.get, tool_result, run_state.out)
           }
         }
       }
     val log_result = Exn.capture { log("Stopping tasks...") }
-    val tasks = startup_task :: run_state.tool_tasks.valuesIterator.toList
+    val tasks = run_state.tool_tasks.valuesIterator.toList
     val stop_result = Exn.capture {
       val stop_results = tasks.map(task => Exn.capture(task.stop()))
       val join_results = tasks.map(task => Exn.capture(task.join()))
@@ -159,7 +143,6 @@ class PIDE_MCP_Server(
   }
 
   private def handle_input(line: String, run: Run): Unit = {
-    if (log_messages) log(s"<<< $line")
     Exn.result { JSON.parse(line, strict = false) } match {
       case Exn.Exn(exn) =>
         log(s"Parse error: ${Exn.print(exn)}")
@@ -235,7 +218,7 @@ class PIDE_MCP_Server(
   private def handle_initialize(
     id: JSON_RPC.Id,
     request: JSON.Object.T,
-    out: BufferedWriter
+    out: Output
   ): Unit = {
     Exn.result { parse_initialize_request(request) } match {
       case Exn.Exn(exn) => respond(out, JSON_RPC.error(id,
@@ -244,11 +227,12 @@ class PIDE_MCP_Server(
         "protocolVersion" -> decide_protocol_version(client_version),
         "capabilities" -> JSON_Object("tools" -> JSON_Object()),
         "serverInfo" -> JSON_Object("name" -> Config.name, "version" -> Config.version),
-        "instructions" -> Config.instructions)))
+        "instructions" ->
+          (Config.instructions :: server.access_note.toList).mkString(" "))))
     }
   }
 
-  private def handle_tools_list(id: JSON_RPC.Id, out: BufferedWriter): Unit = {
+  private def handle_tools_list(id: JSON_RPC.Id, out: Output): Unit = {
     val tools = sessions.tool_table.values.toList.sortBy(_.name).map { tool =>
       val entry = JSON_Object("name" -> tool.name, "description" -> tool.description,
         "inputSchema" -> tool.input_schema)
@@ -290,7 +274,7 @@ class PIDE_MCP_Server(
     id: JSON_RPC.Id,
     task: Tool_Task,
     result: Exn.Result[PIDE_MCP_Tool_Result],
-    out: BufferedWriter
+    out: Output
   ): Unit =
     result match {
       case Exn.Res(_) if task.stopped =>

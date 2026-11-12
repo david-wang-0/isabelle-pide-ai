@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# Author: Kevin Kappelmann
+#
+# Client for Isabelle PIDE AI servers.
+
+shopt -u patsub_replacement 2>/dev/null
+
+function usage()
+{
+  cat >&2 <<EOF
+
+Usage: $(basename "$0") PORT [OPTIONS] TOOL [JSON | KEY=STRING ... | KEY:=JSON ...]
+
+  Options are:
+    -p           report progress
+
+  Prints result on stdout, progress and errors on stderr. Exits 1 on error.
+  list_extensions show_input_schema:=true lists tools with their arguments.
+
+EOF
+  exit 2
+}
+
+function flatten()
+{
+  local s="${1//$'\r'/}"
+  printf '%s' "${s//$'\n'/ }"
+}
+
+function json_string()
+{
+  local s="$1" i control escaped
+  local -a from=('\' '"' $'\n' $'\r' $'\t') to=('\\' '\"' '\n' '\r' '\t')
+  for ((i = 0; i < ${#from[@]}; i++)); do
+    s="${s//"${from[i]}"/${to[i]}}"
+  done
+  for ((i = 1; i < 32; i++)); do
+    printf -v control '\\%03o' "$i"
+    printf -v control '%b' "$control"
+    printf -v escaped '\\u%04x' "$i"
+    s="${s//"$control"/$escaped}"
+  done
+  printf '"%s"' "$s"
+}
+
+[ "$#" -ge 1 ] && [[ "$1" =~ ^[0-9]+$ ]] || usage
+PORT="$1"
+shift
+
+META=""
+while getopts "p" OPT; do
+  case "$OPT" in
+    p) META=',"_meta":{"progressToken":1}' ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+[ "$#" -ge 1 ] || usage
+TOOL="$1"
+shift
+
+if [ "$#" -eq 0 ]; then
+  JSON="{}"
+elif [ "$#" -eq 1 ] && [[ "$1" =~ ^[[:space:]]*\{ ]]; then
+  JSON="$(flatten "$1")"
+else
+  JSON=""
+  for ARG in "$@"; do
+    [[ "$ARG" == *=* ]] || usage
+    KEY="${ARG%%=*}"
+    VALUE="${ARG#*=}"
+    if [[ "$KEY" == *: ]]; then
+      KEY="${KEY%:}"
+      VALUE="$(flatten "$VALUE")"
+    else
+      VALUE="$(json_string "$VALUE")"
+    fi
+    JSON+="${JSON:+,}$(json_string "$KEY"):$VALUE"
+  done
+  JSON="{$JSON}"
+fi
+REQUEST="{\"name\":$(json_string "$TOOL"),\"arguments\":$JSON$META}"
+
+exec 3<>"/dev/tcp/127.0.0.1/$PORT" || exit 2
+printf 'cmd %s\n%s\n' "$PWD" "$REQUEST" >&3
+IFS= read -r FIRST <&3
+if [ "$FIRST" != OK ]; then
+  [ -z "$FIRST" ] || printf '%s\n' "$FIRST" >&2
+  exit 1
+fi
+RC=1
+while IFS= read -r LINE <&3 || [ -n "$LINE" ]; do
+  if [[ "$LINE" == '{"result":'* ]]; then
+    printf '%s\n' "$LINE"
+    RC=0
+  else
+    printf '%s\n' "$LINE" >&2
+  fi
+done
+exit "$RC"

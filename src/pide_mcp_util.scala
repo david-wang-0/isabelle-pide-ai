@@ -27,6 +27,15 @@ object PIDE_MCP_Util {
   def check_failures(exns: List[Throwable]): Unit =
     for (exn <- exns.headOption) throw failure(exn, exns.tail)
 
+  def release_combined(results: List[Exn.Result[?]]): Unit =
+    check_failures(results.collect { case Exn.Exn(exn) => exn })
+
+  def log_failure(log: Logger, what: String, result: Exn.Result[?]): Unit =
+    result match {
+      case Exn.Exn(exn) => Exn.capture { log(s"$what: ${Exn.print(exn)}") }
+      case Exn.Res(_) =>
+    }
+
   def text_range(doc: Line.Document, start_line: Int, end_line: Int): Option[Text.Range] =
     if (start_line - 1 > end_line) None
     else doc.text_range(Line.Range(Line.Position(start_line - 1), Line.Position(end_line)))
@@ -63,7 +72,23 @@ object PIDE_MCP_Util {
   def print_process_result(process_result: Process_Result): String =
     process_result.print_rc + if_proper(process_result.err, s": ${process_result.err}")
 
-  def path(s: String): Path = Path.explode(File.standard_path(s))
+  /* working directory of the client of the current tool call (PIDE AI backport) */
+
+  private val client_dir = new ThreadLocal[Option[Path]] {
+    override def initialValue(): Option[Path] = None
+  }
+
+  def with_client_dir[A](dir: Option[Path])(body: => A): A = {
+    val old = client_dir.get
+    client_dir.set(dir)
+    try { body } finally { client_dir.set(old) }
+  }
+
+  // relative paths are resolved against the client's working directory, if known
+  def path(s: String): Path = {
+    val path = Path.explode(File.standard_path(s))
+    client_dir.get.fold(path)(_ + path)
+  }
 
   def uses_isabelle_encoding(path: Path): Boolean =
     File.is_thy(path.file_name) || File.is_ML(path.file_name)
