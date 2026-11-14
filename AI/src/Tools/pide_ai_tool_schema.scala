@@ -10,7 +10,6 @@ import isabelle._
 
 object PIDE_AI_Tool_Schema {
   val implicit_load_files: String = "Loads files if needed."
-  val range_perspective: String = "Moves visible PIDE perspective to range."
   val no_processing_wait: String = "Does not wait for commands to terminate."
 
   val running_session_arg = JSON_Schema.Arg.optional(
@@ -39,6 +38,10 @@ object PIDE_AI_Tool_Schema {
   val disk_sync_arg = disk_sync_values_arg(PIDE_AI_Tool_Util.Sync.values)
   val node_disk_sync_arg = disk_sync_values_arg(
     PIDE_AI_Tool_Util.Sync.values.filterNot(_ == PIDE_AI_Tool_Util.Sync.node_and_ancestors))
+  val visible_arg = JSON_Schema.Arg.default("visible",
+    "Visible commands run auto-tools (e.g. quickcheck; expensive!), but don't affect processing.",
+    JSON_Schema.Format.enumeration(PIDE_AI_Tool_Util.Visible.values),
+    PIDE_AI_Tool_Util.Visible.none)
 
   def ms_format(minimum: Int): JSON_Schema.Format[Time] =
     JSON_Schema.Format.int(minimum = Some(minimum)).map(Time.ms(_), _.ms.toInt)

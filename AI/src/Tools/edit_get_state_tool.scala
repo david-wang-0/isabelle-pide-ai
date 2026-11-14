@@ -9,7 +9,7 @@ import isabelle._
 class Edit_Get_State_Tool extends PIDE_AI_Tool("edit_get_state") with PIDE_AI_Tool.Destructive {
   def description: String =
     Edit_Tool.base_description + " " + Get_State_Tool.base_description("edited commands") + " " +
-    PIDE_AI_Tool_Schema.range_perspective + " " + PIDE_AI_Tool_Schema.implicit_load_files
+    PIDE_AI_Tool_Schema.implicit_load_files
 
   val timeout_arg = Get_State_Tool.Request.timeout_arg(Time.seconds(5), "Edit + sync")
 

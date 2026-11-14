@@ -25,6 +25,7 @@ object Edit_Tool {
     end_line: Option[Int],
     old_text: String,
     edit_all: Boolean,
+    visible: PIDE_AI_Tool_Util.Visible,
     sync: PIDE_AI_Tool_Util.Sync)
 
   def load_edit(
@@ -79,8 +80,8 @@ object Edit_Tool {
       progress.expose_interrupt()
       if (changed) session.resources.write_file_content(node_name.path, computed_text)
       val (_, change) = session.resources.load_nodes(session,
-        List(node_name -> Some(edited_lines.map(_ -> Some(_)))),
-        hide_others = true,
+        List(node_name -> request.visible.visible_lines(edited_lines.map(_ -> Some(_)))),
+        request.visible.hide_others,
         // avoid disk <--> PIDE disagreement
         new Unstoppable_Progress(progress))
       session.await_stable(change, progress)
@@ -110,7 +111,7 @@ object Edit_Tool {
   val edit_args: List[JSON_Schema.Arg[?]] = List(PIDE_AI_Tool_Schema.running_session_arg,
     PIDE_AI_Tool_Schema.node_arg, mode_arg, text_arg,
     PIDE_AI_Tool_Schema.start_line_default_arg, PIDE_AI_Tool_Schema.opt_end_line_arg,
-    old_text_arg, edit_all_arg, show_edited_lines_arg)
+    old_text_arg, edit_all_arg, show_edited_lines_arg, PIDE_AI_Tool_Schema.visible_arg)
 
   def load_edit_json(
     session: PIDE_AI_Session,
@@ -124,7 +125,7 @@ object Edit_Tool {
     val request = Request(mode_arg.get(args), pide_text(text_arg),
       PIDE_AI_Tool_Schema.start_line_default_arg.get(args),
       PIDE_AI_Tool_Schema.opt_end_line_arg.get(args), pide_text(old_text_arg),
-      edit_all_arg.get(args), sync)
+      edit_all_arg.get(args), PIDE_AI_Tool_Schema.visible_arg.get(args), sync)
     val show_edited_lines = show_edited_lines_arg.get(args)
     val edited_lines = load_edit(session, node_name, request, progress)
     val shown_lines = show_edited_lines match {
@@ -142,8 +143,7 @@ object Edit_Tool {
 
 class Edit_Tool extends PIDE_AI_Tool("edit") with PIDE_AI_Tool.Destructive {
   def description: String =
-    Edit_Tool.base_description + " " + PIDE_AI_Tool_Schema.range_perspective + " " +
-    PIDE_AI_Tool_Schema.no_processing_wait + " " +
+    Edit_Tool.base_description + " " + PIDE_AI_Tool_Schema.no_processing_wait + " " +
     PIDE_AI_Tool_Schema.implicit_load_files
 
   def input_schema: JSON.Object.T =
