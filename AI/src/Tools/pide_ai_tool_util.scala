@@ -38,6 +38,19 @@ object PIDE_AI_Tool_Util {
 
   enum Sync { case none, node, node_and_ancestors }
 
+  enum Visible {
+    case none, `this`, unchanged
+    def visible_lines(
+      line_ranges: List[(Int, Option[Int])]
+    ): Option[List[(Int, Option[Int])]] =
+      this match {
+        case Visible.none => Some(Nil)
+        case Visible.`this` => Some(line_ranges)
+        case Visible.unchanged => None
+      }
+    def hide_others: Boolean = this != Visible.unchanged
+  }
+
   enum Stop_On {
     case any_failed, all_terminated
     def stop(statuses: List[Document_Status.Command_Status]): Boolean =

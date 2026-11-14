@@ -8,13 +8,12 @@ import isabelle._
 
 class Read_Tool extends PIDE_AI_Tool("read") {
   def description: String =
-    "Read line-numbered content. " + PIDE_AI_Tool_Schema.range_perspective + " " +
-    PIDE_AI_Tool_Schema.implicit_load_files
+    "Read line-numbered content. " + PIDE_AI_Tool_Schema.implicit_load_files
 
   def input_schema: JSON.Object.T = JSON_Schema.object_schema(
     List(PIDE_AI_Tool_Schema.running_session_arg, PIDE_AI_Tool_Schema.node_arg,
       PIDE_AI_Tool_Schema.start_line_default_arg, PIDE_AI_Tool_Schema.opt_end_line_arg,
-      PIDE_AI_Tool_Schema.node_disk_sync_arg))
+      PIDE_AI_Tool_Schema.visible_arg, PIDE_AI_Tool_Schema.node_disk_sync_arg))
 
   def handle(
     server: PIDE_AI_Server,
@@ -28,9 +27,10 @@ class Read_Tool extends PIDE_AI_Tool("read") {
       val start_line = PIDE_AI_Tool_Schema.start_line_default_arg.get(args)
       val opt_end_line = PIDE_AI_Tool_Schema.opt_end_line_arg.get(args)
       PIDE_AI_Util.check_ordered_lines(start_line, opt_end_line)
-      val nodes = List(node_name -> Some(List((start_line, opt_end_line))))
+      val visible = PIDE_AI_Tool_Schema.visible_arg.get(args)
+      val nodes = List(node_name -> visible.visible_lines(List((start_line, opt_end_line))))
       val (sources, change) = PIDE_AI_Tool_Util.sync_load_missing_nodes(session, nodes,
-        PIDE_AI_Tool_Schema.node_disk_sync_arg.get(args), hide_others = true, progress)
+        PIDE_AI_Tool_Schema.node_disk_sync_arg.get(args), visible.hide_others, progress)
       session.await_stable(change, progress)
       session.resources.load_missing(session, List(node_name), progress)
       val doc = Line.Document(sources(node_name))
