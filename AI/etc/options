@@ -14,8 +14,8 @@ option pide_ai_log_long_running_threshold : real = 20 for pide_ai
 
 section "Documents"
 
-option pide_ai_range_context : int = 50 for pide_ai
-  -- "lines around a read or edited range that are added to the PIDE perspective"
+option pide_ai_range_context : int = 30 for pide_ai
+  -- "lines around a read or edited range that are, on selection, added to the visible PIDE perspective"
 
 option pide_ai_unicode_symbols : bool = true for pide_ai
   -- "represent Isabelle symbols via Unicode"
