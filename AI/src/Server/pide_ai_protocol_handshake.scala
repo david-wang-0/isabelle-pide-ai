@@ -24,8 +24,10 @@ object PIDE_AI_Protocol_Handshake {
   ): (PIDE_AI_Protocol, PIDE_AI_Client_Context) = {
     val (name, rest) = line.span(_ != ' ')
     val protocol = protocols.getOrElse(name, error(s"Bad protocol: ${quote(name)}"))
-    val cwd = Library.try_unprefix(" ", rest).map(PIDE_AI_Util.path(_, None))
-    (protocol, PIDE_AI_Client_Context(cwd))
+    val (id, rest1) =
+      Library.try_unprefix(" ", rest).getOrElse(error("Missing client id")).span(_ != ' ')
+    val cwd = Library.try_unprefix(" ", rest1).map(PIDE_AI_Util.path(_, None))
+    (protocol, PIDE_AI_Client_Context(id, cwd))
   }
 
   def server_handshake(
@@ -40,7 +42,7 @@ object PIDE_AI_Protocol_Handshake {
     }
 
   def header_line(protocol: PIDE_AI_Protocol, context: PIDE_AI_Client_Context): String =
-    context.cwd.fold(protocol.id)(dir => protocol.id + " " + File.platform_path(dir))
+    protocol.id + " " + context.id + context.cwd.fold("")(dir => " " + File.platform_path(dir))
 
   def client_handshake(
     protocol: PIDE_AI_Protocol,

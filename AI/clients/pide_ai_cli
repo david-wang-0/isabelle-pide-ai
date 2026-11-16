@@ -83,8 +83,9 @@ else
 fi
 REQUEST="{\"name\":$(json_string "$TOOL"),\"arguments\":$JSON$META}"
 
+ID="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT" || exit 2
-printf 'cmd %s\n%s\n' "$PWD" "$REQUEST" >&3
+printf 'cmd %s %s\n%s\n' "$ID" "$PWD" "$REQUEST" >&3
 IFS= read -r FIRST <&3
 if [ "$FIRST" != OK ]; then
   [ -z "$FIRST" ] || printf '%s\n' "$FIRST" >&2

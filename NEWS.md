@@ -4,6 +4,8 @@ PIDE AI NEWS -- history of user-relevant changes
 New in this PIDE AI version
 ---------------------------
 
+* Protocol header is now `<protocol> <client id>[ <cwd>]` with mandatory client id `[A-Za-z0-9_-]+`. Client contexts carry the id. INCOMPATIBILITY.
+    Also available on branch `Isabelle2026`.
 * PIDE visibility can now be set by agents (default: invisible). Previously, read or edited ranges always became visible, leading to expensive auto-tool calls. INCOMPATIBILITY.
     Also available on branch `Isabelle2026`.
 * Update to Isabelle version as specified in [ISABELLE\_VERSION](./ISABELLE_VERSION)
