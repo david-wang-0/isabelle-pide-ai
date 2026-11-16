@@ -100,7 +100,8 @@ object PIDE_AI {
     var verbose = false
     var log_messages = false
     var port: Option[Int] = None
-    val client_context = PIDE_AI_Client_Context.current_path
+    val client_context = PIDE_AI_Client_Context(PIDE_AI_Client_Context.random_id(),
+      Some(PIDE_AI_Client_Context.current_path))
     val cwd = client_context.cwd
     val session_spec = new PIDE_AI_Session_Spec.Builder
 

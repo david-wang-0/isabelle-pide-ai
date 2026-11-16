@@ -70,7 +70,7 @@ $utf8 = [System.Text.UTF8Encoding]::new($false)
 try { $client = [System.Net.Sockets.TcpClient]::new('127.0.0.1', $port) }
 catch { [Console]::Error.WriteLine($_.Exception.Message); exit 2 }
 $stream = $client.GetStream()
-$bytes = $utf8.GetBytes("cmd $((Get-Location).ProviderPath)`n$request`n")
+$bytes = $utf8.GetBytes("cmd $([guid]::NewGuid()) $((Get-Location).ProviderPath)`n$request`n")
 $stream.Write($bytes, 0, $bytes.Length)
 $reader = [System.IO.StreamReader]::new($stream, $utf8)
 $first = $reader.ReadLine()
