@@ -65,6 +65,11 @@ object PIDE_AI_Session_State {
   ): Option[JSON.Object.Entry] =
     field.unapply(props).map(count => key -> count.toLong)
 
+  def gc_running_entry(props: Properties.T): Option[JSON.Object.Entry] =
+    ML_Statistics.memory_status(props).gc_status.map((phase, progress) =>
+      "ml_gc_running" -> JSON_Object.flatten(proper_string(phase).map("phase" -> _),
+        Some("percent_done" -> (progress * 100).round)))
+
   def ml_stats_json(statistics: List[Properties.T]): JSON.Object.T = {
     val ml = ML_Statistics(statistics)
     val after_gc = ML_Statistics(statistics.filter(ml_heap_collected))
@@ -80,7 +85,8 @@ object PIDE_AI_Session_State {
         count_entry(latest, "tasks_total", ML_Statistics.Tasks_Total),
         count_entry(latest, "workers_active", ML_Statistics.Workers_Active),
         count_entry(latest, "workers_total", ML_Statistics.Workers_Total),
-        count_entry(latest, "ml_threads", ML_Statistics.Threads_ML)))
+        count_entry(latest, "ml_threads", ML_Statistics.Threads_ML),
+        gc_running_entry(latest)))
   }
 
   def java_heap_collected(props: Properties.T): Boolean =
