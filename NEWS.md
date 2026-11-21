@@ -15,6 +15,11 @@ New in this PIDE MCP version
         result on stdout, progress (`-p`) and errors on stderr, exit code 1 on error.
     * Command connections additionally offer `list_extensions` and `stop_server` (not served as MCP tools).
     * Relative paths in tool calls over TCP resolve against the client's working directory.
+* Private backport (branch `exports-tool`, on `isabelle2025-2-cli`, not published) of PIDE AI's tool `export` (upstream d872aee, 41bdfda):
+    list the exports of the session's loaded theories (e.g. code from `export_code ... file_prefix ...`), or, with `patterns` (THEORY:NAME, as `isabelle export -x`),
+    write the matching ones to `out_dir` (default `export`) as `OUT_DIR/THEORY/NAME`, uncompressed and with the executable bit, as `isabelle export`.
+    Same name, arguments and result as upstream. Extra: a progress warning for each loaded theory that is still being processed (its exports may be incomplete).
+    Tests: `tests/README.md`.
 * Edits now decode automatically.
 * More compact `get_state`: by default, only a summary is returned instead of full commands.
   Empty commands are not returned but still counted. New `include_details` and `problematic_commands_limit`.

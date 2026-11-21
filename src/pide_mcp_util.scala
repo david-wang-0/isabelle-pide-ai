@@ -90,6 +90,14 @@ object PIDE_MCP_Util {
     client_dir.get.fold(path)(_ + path)
   }
 
+  // as upstream PIDE_AI_Util.relative_path / print_path, with the client's working directory
+  def relative_path(path: Path): Path = {
+    val abs = path.absolute
+    client_dir.get.flatMap(File.relative_path(_, abs)).getOrElse(abs)
+  }
+
+  def print_path(path: Path): String = relative_path(path).implode
+
   def uses_isabelle_encoding(path: Path): Boolean =
     File.is_thy(path.file_name) || File.is_ML(path.file_name)
 

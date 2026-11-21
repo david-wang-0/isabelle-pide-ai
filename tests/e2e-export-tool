@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# End-to-end test of the `export` tool through the real entry point: a `pide` daemon
+# (isabelle-kit's command-line client) running `isabelle pide_mcp` from THIS checkout, in an
+# isolated Isabelle user home (tests/isolated-env.sh), on a throwaway project on HOL.
+#
+#  1. `pide tools export` lists the tool;
+#  2. list the exports of a theory with `export_code ... in SML/Haskell file_prefix ...`;
+#  3. write them (patterns + relative out_dir) and compare byte for byte with
+#     `isabelle build -e` (ROOT export_files) and `isabelle export -x` of the same theory;
+#  4. the pending case: a theory still running before its export_code gives a progress
+#     warning and no exports yet; once finished, its exports appear;
+#  5. stop the session and the daemon.
+#
+# Needs: the HOL heap, the `pide` client on PATH (or $PIDE). Memory: one HOL PIDE session plus
+# one `isabelle build` of a one-theory session on HOL; caps below.
+# Exit 0 iff every check passes.
+set -euo pipefail
+source "$(dirname "$0")/isolated-env.sh"
+# The client, resolved to a PATH program NOW: the function `pide` below has the same name,
+# and a bare "$PIDE" inside it would call the function itself, recursing without end (on
+# 2026-11-21 that grew this bash to 16 GB in a minute and froze the laptop). FUNCNEST is a
+# second guard against any such recursion.
+PIDE="${PIDE:-$(command -v pide)}"
+[ -x "$PIDE" ] || { echo "no pide client on PATH (set PIDE)" >&2; exit 2; }
+FUNCNEST=20
+# Memory: capped by heap limits, not by `prlimit --as`. An address-space cap cannot be used:
+# Poly/ML 64_32 reserves over 16 GB of address space at startup ("Unable to initialise memory
+# allocator" even at --as=16G), and the JVM does not load its classes below ~6 GB. So the JVM
+# gets -Xmx1536m and G1 (the default ZGC reserves a multiple of the heap as address space),
+# Poly/ML --maxheap 3G: one PIDE session (JVM + ML) stays around 5 GB, and the `isabelle
+# build` below runs before it, not beside a second ML process of ours.
+cat >> "$USER_HOME/.isabelle/$ISABELLE_ID/etc/settings" <<'SETTINGS'
+ISABELLE_TOOL_JAVA_OPTIONS="-Djava.awt.headless=true -Xms256m -Xmx1536m -Xss16m -XX:ReservedCodeCacheSize=128m -XX:CompressedClassSpaceSize=256m -XX:-UseZGC -XX:+UseG1GC -XX:MarkStackSizeMax=16m"
+ML_OPTIONS="--maxheap 3G"
+SETTINGS
+PROJ="$TEST_TMP/project"
+INSTANCE=exports-test
+pass=0; fail=0
+ok()   { pass=$((pass+1)); echo "ok   $*"; }
+bad()  { fail=$((fail+1)); echo "FAIL $*"; }
+pide() { command "$PIDE" --project "$PROJ" -i "$INSTANCE" "$@"; }
+cleanup() {
+  command "$PIDE" --project "$PROJ" -i "$INSTANCE" stop >/dev/null 2>&1 || true
+  if [ -n "${KEEP:-}" ]; then echo "kept $TEST_TMP"; else rm -rf "$TEST_TMP"; fi
+}
+trap cleanup EXIT
+
+# Memory guard (tests/memguard.py): every process this test starts carries MEMGUARD_TAG,
+# also the pide daemon, its JVM and Poly/ML, which leave this process tree (the client
+# starts the daemon in a new session). Above MEMGUARD_LIMIT_MB of total RSS (default 9 GB)
+# the guard kills them all and sends TERM here, and the test fails.
+export MEMGUARD_TAG="e2e-export-tool-$$-$RANDOM"
+MEMGUARD_LIMIT_MB="${MEMGUARD_LIMIT_MB:-9216}"
+[ -n "${E2E_GUARD_SELFTEST:-}" ] && MEMGUARD_LIMIT_MB=150
+guard_tripped() {
+  bad "memory guard: $(cat "$TEST_TMP/memguard.trip" 2>/dev/null || echo tripped)"
+  echo "$pass passed, $fail failed"
+  exit 1
+}
+trap guard_tripped TERM
+python3 -I "$(dirname "$0")/memguard.py" --tag "$MEMGUARD_TAG" --main-pid $$ \
+  --limit-mb "$MEMGUARD_LIMIT_MB" --interval 1 --marker "$TEST_TMP/memguard.trip" &
+echo "memory guard pid $! at $MEMGUARD_LIMIT_MB MB" >&2
+
+# E2E_GUARD_SELFTEST=1: prove the guard on something cheap, with the same wiring: a
+# self-bounded allocator (at most 400 MB, then it idles) against a 150 MB limit. Expected
+# result: the guard trips, the test FAILS with its message.
+if [ -n "${E2E_GUARD_SELFTEST:-}" ]; then
+  python3 -I -c 'import time
+chunks = []
+while len(chunks) < 20:
+    chunks.append(bytearray(20 << 20)); time.sleep(0.05)
+time.sleep(60)'
+  bad "guard self-test: the allocator was not stopped"
+  echo "$pass passed, $fail failed"
+  exit 1
+fi
+
+mkdir -p "$PROJ"
+cat > "$PROJ/ROOT" <<'ROOT'
+session Exports_Test = HOL +
+  options [document = false]
+  theories
+    T
+  export_files (in "build_export") "*:**"
+ROOT
+cat > "$PROJ/T.thy" <<'THY'
+theory T
+  imports Main
+begin
+
+fun add :: "nat \<Rightarrow> nat \<Rightarrow> nat" where
+  "add 0 n = n"
+| "add (Suc m) n = Suc (add m n)"
+
+export_code add in SML file_prefix t
+
+export_code add in Haskell module_name Add file_prefix h
+
+end
+THY
+cat > "$PROJ/P.thy" <<'THY'
+theory P
+  imports Main
+begin
+
+fun double :: "nat \<Rightarrow> nat" where "double n = n + n"
+
+ML \<open>OS.Process.sleep (seconds 25.0)\<close>
+
+export_code double in SML file_prefix p
+
+end
+THY
+
+isabelle scala_build >&2
+
+# 0. the reference: build the session (ROOT export_files) and `isabelle export` its code,
+#    BEFORE the PIDE session starts, so that only one ML process of ours runs at a time
+(cd "$PROJ" && isabelle build -e -d . Exports_Test >&2)
+(cd "$PROJ" && isabelle export -d . -O "$TEST_TMP/isabelle_export" -x 'Exports_Test.T:code/**' Exports_Test >&2)
+
+# 1. the tool is served
+pide start >&2
+if pide tools | grep -q '^export '; then ok "pide tools lists export"; else bad "pide tools lists export"; fi
+pide tools export > "$TEST_TMP/tools-export.json"
+if grep -q '"out_dir"' "$TEST_TMP/tools-export.json" && grep -q '"patterns"' "$TEST_TMP/tools-export.json"
+then ok "pide tools export shows patterns and out_dir"; else bad "pide tools export schema"; fi
+
+pide start_session logic=HOL dirs="[\"$PROJ\"]" > "$TEST_TMP/start.json"
+echo "session start: $(head -c 300 "$TEST_TMP/start.json")" >&2
+
+# processed(ORIGIN): get_state reports no unprocessed and no running command
+processed() {
+  pide -c get_state origin="$1" 2>/dev/null | python3 -c '
+import json, sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(1)
+run = d.get("commands_still_running_possibly_nonterminating", {}).get("count", 1)
+sys.exit(0 if d.get("commands_unprocessed", 1) == 0 and run == 0 and d.get("commands_finished", 0) > 0 else 1)'
+}
+
+# 2. load T and wait until it is processed
+pide read origin=Exports_Test.T >/dev/null 2>&1 || true
+for i in $(seq 1 180); do processed Exports_Test.T && break; sleep 1; done
+pide export > "$TEST_TMP/list.json"
+cat "$TEST_TMP/list.json"
+if grep -q '"Exports_Test.T:code/t.ML"' "$TEST_TMP/list.json" &&
+   grep -q '"Exports_Test.T:code/h/Add.hs"' "$TEST_TMP/list.json"
+then ok "list shows the SML and Haskell exports"; else bad "list: $(cat "$TEST_TMP/list.json")"; fi
+
+# 3. write (relative out_dir: the daemon runs in the project root) and compare
+pide export patterns='["Exports_Test.T:code/**"]' out_dir=pide_export > "$TEST_TMP/write.json"
+cat "$TEST_TMP/write.json"
+if [ -f "$PROJ/pide_export/Exports_Test.T/code/t.ML" ]
+then ok "relative out_dir resolved against the project root"
+else bad "no $PROJ/pide_export/Exports_Test.T/code/t.ML"; fi
+pide export patterns='["Exports_Test.T:code/*"]' out_dir="$TEST_TMP/abs_out" > "$TEST_TMP/write2.json"
+if [ -f "$TEST_TMP/abs_out/Exports_Test.T/code/t.ML" ] && [ ! -e "$TEST_TMP/abs_out/Exports_Test.T/code/h" ]
+then ok "absolute out_dir, pattern * stops at /"; else bad "absolute out_dir / pattern"; fi
+
+for ref in "$TEST_TMP/isabelle_export" "$PROJ/build_export"; do
+  if diff -r "$ref/Exports_Test.T/code" "$PROJ/pide_export/Exports_Test.T/code" >&2
+  then ok "byte-identical to ${ref#$TEST_TMP/}"; else bad "differs from $ref"; fi
+done
+( cd "$PROJ/pide_export" && find . -type f -exec sha256sum {} + | sort -k2 ) > "$TEST_TMP/pide.sha"
+( cd "$TEST_TMP/isabelle_export" && find . -type f -exec sha256sum {} + | sort -k2 ) > "$TEST_TMP/ref.sha"
+echo "--- pide export:";     cat "$TEST_TMP/pide.sha"
+echo "--- isabelle export:"; cat "$TEST_TMP/ref.sha"
+if cmp -s "$TEST_TMP/pide.sha" "$TEST_TMP/ref.sha"; then ok "same file set and sha256"; else bad "sha256 manifests differ"; fi
+
+# 4. pending: P sleeps 25 s before its export_code
+pide read origin="$PROJ/P.thy" >/dev/null 2>&1 || true
+sleep 3
+pide read origin="$PROJ/P.thy" >/dev/null 2>&1 || true
+pide -v export > "$TEST_TMP/pending.json" 2> "$TEST_TMP/pending.err" || true
+echo "--- pending call: stdout"; cat "$TEST_TMP/pending.json"
+echo "--- pending call: stderr"; grep -i 'process\|warning\|incomplete' "$TEST_TMP/pending.err" || true
+if grep -q 'P" is still being processed' "$TEST_TMP/pending.err"
+then ok "pending theory gives a warning"; else bad "no pending warning"; fi
+if ! grep -q ':code/p.ML' "$TEST_TMP/pending.json"
+then ok "pending export not listed yet"; else bad "pending export already listed"; fi
+for i in $(seq 1 90); do
+  pide export > "$TEST_TMP/after.json" 2>/dev/null || true
+  grep -q ':code/p.ML' "$TEST_TMP/after.json" && break
+  sleep 1
+done
+if grep -q ':code/p.ML' "$TEST_TMP/after.json"; then ok "export appears once processed"; else bad "export never appeared"; fi
+# the export arrives with its command; the theory's `end` and consolidation come a little
+# later, and the warning ("not consolidated") stays until then
+for i in $(seq 1 60); do
+  pide -v export > /dev/null 2> "$TEST_TMP/done.err" || true
+  grep -q 'still being processed' "$TEST_TMP/done.err" || break
+  sleep 1
+done
+if ! grep -q 'still being processed' "$TEST_TMP/done.err"
+then ok "no warning once consolidated"; else bad "warning after finish: $(cat "$TEST_TMP/done.err")"; fi
+
+# 5. stop
+pide stop_session >/dev/null 2>&1 || pide list_sessions >&2 || true
+pide stop >&2
+if ! pide instances 2>/dev/null | grep -q "$INSTANCE"; then ok "daemon stopped"; else bad "daemon still up"; fi
+
+echo "$pass passed, $fail failed"
+[ "$fail" = 0 ]

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Unit tests of the export tool (src/Tools/export_tool_test.scala), run against this checkout
+# in an isolated Isabelle user home (tests/isolated-env.sh). Exit 0 iff all pass.
+set -euo pipefail
+source "$(dirname "$0")/isolated-env.sh"
+trap 'rm -rf "$TEST_TMP"' EXIT
+isabelle scala_build >&2
+isabelle java isabelle.pide.mcp.Export_Tool_Test

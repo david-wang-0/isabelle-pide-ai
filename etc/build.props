@@ -49,6 +49,8 @@ sources = \
   src/Tools/tool_create_file.scala \
   src/Tools/tool_create_scratch.scala \
   src/Tools/tool_edit.scala \
+  src/Tools/export_tool.scala \
+  src/Tools/export_tool_test.scala \
   src/Tools/tool_find_entities.scala \
   src/Tools/tool_get_session_state.scala \
   src/Tools/tool_get_state.scala \
@@ -63,6 +65,7 @@ services = \
   isabelle.pide.mcp.Tools_Create_File \
   isabelle.pide.mcp.Tools_Create_Scratch \
   isabelle.pide.mcp.Tools_Edit \
+  isabelle.pide.mcp.Export_Tools \
   isabelle.pide.mcp.Tools_Find_Entities \
   isabelle.pide.mcp.Tools_Get_Session_State \
   isabelle.pide.mcp.Tools_Get_State \
